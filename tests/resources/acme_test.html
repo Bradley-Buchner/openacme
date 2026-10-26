@@ -2,6 +2,35 @@
 <head><title>Mock ACME Table - test fixture</title></head>
 <body>
 
+<p class="H1" id="em_a">Table A<br />
+VALID CODES FOR MULTIPLE AND UNDERLYING CAUSE CODING</p>
+
+<p class="MsoNormal" id="em_a_r1">&nbsp;A000</p>
+
+<p class="MsoNormal" id="em_a_r2">A01</p>
+
+<p class="H1" id="em_b">Table B<br />
+VALID CODES FOR MULTIPLE CAUSE CODING</p>
+
+<p class="MsoNormal" id="em_b_r1">A0090</p>
+
+<p class="MsoNormal" id="em_b_r2">A009</p>
+
+<p class="H1" id="em_c">Table C<br />
+INVALID CODES FOR MULTIPLE AND UNDERLYING CAUSE CODING FOR US REGISTRATION AREAS</p>
+
+<p class="H2" id="em_c_h2_1">VALID FOR MULTIPLE CAUSE AND UNDERLYING CAUSE CODING</p>
+
+<p class="MsoNormal" id="em_c_r1">A011</p>
+
+<p class="H2" id="em_c_h2_2">VALID FOR MULTIPLE CAUSE CODING ONLY</p>
+
+<p class="MsoNormal" id="em_c_r2">A010</p>
+
+<p class="H2" id="em_c_h2_3">VALID MULTIPLE CAUSE CODES WHICH HAVE NO EFFECT ON THE UC</p>
+
+<p class="MsoNormal" id="em_c_r3">A00-A01</p>
+
 <p class="H1" id="em_d">Table D<br />
 CAUSAL RELATIONSHIP:<br />
 GENERAL PRINCIPLE AND RULES 1 AND 2</p>
@@ -14,6 +43,8 @@ GENERAL PRINCIPLE AND RULES 1 AND 2</p>
 
 <p class="TableDRow" id="em_d_a000_r2">          A010   -A011</p>
 
+<p class="TableDRow" id="em_d_a000_r3">M  A010   -A011</p>
+
 <p class="H3" id="em_d_a001">A001 Address</p>
 
 <p class="TableDRow" id="em_d_a001_r1">M  A000   -A011</p>
@@ -25,6 +56,19 @@ GENERAL PRINCIPLE AND RULES 1 AND 2</p>
 <p class="H1" id="em_e">Table E<br />
 (unused stop marker)</p>
 
+<p class="H3" id="em_e_a001">A001 Address</p>
+
+<p class="TableERow" id="em_e_a001_r1">DS          A000</p>
+
+<p class="TableERow" id="em_e_a001_r2">DSC   M   #   A010   -A011   A009</p>
+
+<p class="H1" id="em_f">Table F<br />
+REASONS FOR AMBIVALENT RELATIONSHIPS IN MODIFICATION TABLE</p>
+
+<p class="H3" id="em_f_a001">A001 Address</p>
+
+<p class="TableFRow" id="em_f_a001_r1">DSC   M   A010   -A011   A009   Suba must be acute</p>
+
 <p class="H1" id="em_g">Table G<br />
 CODE CONVERSIONS: Created codes and their complimentary valid ICD-10 codes</p>
 
@@ -35,7 +79,11 @@ CODE CONVERSIONS: Created codes and their complimentary valid ICD-10 codes</p>
 <p class="MsoNormal" id="em_g_r2"></p>
 
 <p class="H1" id="em_h">Table H<br />
-(unused stop marker)</p>
+ICD-10 Trivial Conditions</p>
+
+<p class="MsoNormal" id="em_h_r1">A00.1          Trivial cholera</p>
+
+<p class="MsoNormal" id="em_h_r2">A01            Trivial typhoid</p>
 
 </body>
 </html>

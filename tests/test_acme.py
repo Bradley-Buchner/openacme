@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from openacme.icd10 import Icd10Graph
-from openacme.acme import get_acme_graph, make_valid_range
+from openacme.acme import get_acme_graph, get_acme_tables, make_valid_range
 
 RESOURCES = Path(__file__).parent / 'resources'
 ACME_FILE = str(RESOURCES / 'acme_test.html')
@@ -41,3 +41,26 @@ def test_acme_range_expansion_nodes_present():
         for code in expanded:
             assert code in g
             assert g.nodes[code]['kind'] == 'category'
+
+
+def test_acme_tables():
+    tables = get_acme_tables(acme_file=ACME_FILE, icd10_file=ICD10_FILE)
+    g = tables['graph']
+    assert g.edges[('A00.0', 'A01.1'), 'A00.1']['maybe']
+    # One row is marked 'M' and the other is not
+    assert not g.edges[('A01.0', 'A01.1'), 'A00.0']['maybe']
+    assert tables['table_e'] == [
+        {'target': 'A00.1', 'source': 'A00.0', 'rule_type': 'DS',
+         'result': None, 'maybe': False, 'hash': False, 'reason': None},
+        {'target': 'A00.1', 'source': ('A01.0', 'A01.1'), 'rule_type': 'DSC',
+         'result': 'A00.9', 'maybe': True, 'hash': True,
+         'reason': 'Suba must be acute'},
+    ]
+    assert tables['code_lists'] == {
+        'A': ['A00.0', 'A01'],
+        'B': ['A00.9'],
+        'C1': ['A01.1'],
+        'C2': ['A01.0'],
+        'C3': ['A00', 'A00.0', 'A00.1', 'A00.9', 'A01', 'A01.0', 'A01.1'],
+        'H': ['A00.1', 'A01', 'A01.0', 'A01.1'],
+    }

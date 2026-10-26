@@ -12,6 +12,8 @@ from .icd10 import ICD10_BASE, icd10_sort_key, Icd10Graph
 
 ACME_URL = "https://www.cdc.gov/nchs/nvss/manuals/2024/2c-2024-raw.html"
 
+ACME_CODE = r'[A-Z]\d{2}[0-9A-Z]{0,2}'
+
 
 def standardize_icd10(raw_code, replacements):
     """Return standardized ICD10 codes from e.g., A251 to A25.1"""
@@ -142,9 +144,9 @@ def process_table_d(icd10_graph, soup, replacements):
             tag_text = tag.get_text(" ", strip=True)
             # Strip leading 'M' when it is followed by whitespace.
             # E.g. 'M   A25.1-A25.9' -> 'A25.1-A25.9'
-            # Note: We could also add 'M' which means that the source "maybe"
-            # the cause of the target, to the edge of 'causes' kind. 
-            tag_text = re.sub(r'^M\s+', '', tag_text)
+            # 'M' means that the source is "maybe" the cause of the target, which
+            # we keep on the edge of 'causes' kind.
+            tag_text, maybe = re.subn(r'^M\s+', '', tag_text)
             # Strip trailing '*' when it is preceded by whitespace.
             # E.g. 'A25.1-A25.9  *' -> 'A25.1-A25.9'
             # Note: The trailing '*' likely is a revision marker from prior 
@@ -168,7 +170,8 @@ def process_table_d(icd10_graph, soup, replacements):
             parts.append({
                 "block": current_h2,
                 "target": current_h3,
-                "source": source
+                "source": source,
+                "maybe": bool(maybe),
             })
     nodes = {n: (n, {'kind': 'range' if isinstance(n, tuple) else 'category'})
              for n in ({part['target'] for part in parts} |
@@ -194,7 +197,159 @@ def process_table_d(icd10_graph, soup, replacements):
     g = nx.DiGraph()
     g.add_nodes_from(nodes.values())
     g.add_edges_from(edges)
+    # Only mark an edge as "maybe" if all its rows have 'M' flags
+    for part in parts:
+        data = g.edges[part['source'], part['target']]
+        data['maybe'] = data.get('maybe', True) and part['maybe']
     return g
+
+
+def process_table_f(soup):
+    """Return the reasons given in ACME Table F for ambivalent relations
+    in Table E (keyed by address, rule type and codes).
+
+    Example row: 'LMC   M   L020   -L029   A064   Suba must be an abscess'
+    """
+    table_f_header = _find_table(soup, 'F')
+    reasons = {}
+    current_h3 = None
+    for tag in table_f_header.find_all_next('p'):
+        classes = set(tag.get('class') or [])
+        if 'H1' in classes:
+            break
+        elif 'H3' in classes:
+            current_h3 = tag.get_text(" ", strip=True).rstrip(' Address')
+        elif 'TableFRow' in classes:
+            rule_type, start, end, result, reason = re.match(
+                rf'([A-Z]+)\s+(?:M\s+)?({ACME_CODE})(?:\s*-\s*({ACME_CODE}))?'
+                rf'(?:\s+({ACME_CODE}))?\s+(.*)',
+                tag.get_text(" ", strip=True)
+            ).groups()
+            reasons[(current_h3, rule_type, start, end, result)] = \
+                ' '.join(reason.split())
+    return reasons
+
+
+def process_table_e(icd10_graph, soup, replacements, reasons):
+    """Return the modification rules of ACME Table E.
+
+    Example row: 'DSC   M   #   B20   -B24   B201   *'
+
+    In each rule, the target is the tentative underlying cause and the
+    source is another condition (code or range) reported with it. The rule
+    type says how they relate. E.g., `DS` means the target is a direct sequel
+    of the source, so it should be selected instead. Combination rules
+    (e.g., `DSC`) specify how two codes should combine. Rules with codes that
+    are not in ICD-10 are skipped.
+    """
+    table_e_header = _find_table(soup, 'E')
+    rules = []
+    current_h3 = None
+    for tag in table_e_header.find_all_next('p'):
+        classes = set(tag.get('class') or [])
+        if 'H1' in classes:
+            break
+        elif 'H3' in classes:
+            current_h3 = tag.get_text(" ", strip=True).rstrip(' Address')
+        elif 'TableERow' in classes:
+            rule_type, maybe, hash_mark, start, end, result_code = \
+                re.match(
+                    rf'([A-Z]+)\s+(M\s+)?(#\s+)?({ACME_CODE})'
+                    rf'(?:\s*-\s*({ACME_CODE}))?(?:\s+({ACME_CODE}))?(?:\s+\*)?$',
+                    tag.get_text(" ", strip=True)
+                ).groups()
+            target = standardize_icd10(current_h3, replacements)
+            source = process_icd10_range(f'{start}-{end}' if end else start,
+                                         replacements)
+            if isinstance(source, tuple):
+                source = make_valid_range(source[0], source[1], icd10_graph)
+            result = standardize_icd10(result_code, replacements) \
+                if result_code else None
+            codes = [target, result] if isinstance(source, tuple) \
+                else [target, result, source]
+            if source is None or \
+                    any(c and c not in icd10_graph.graph for c in codes):
+                continue
+            rules.append({
+                "target": target,
+                "source": source,
+                "rule_type": rule_type,
+                "result": result,
+                "maybe": bool(maybe),
+                "hash": bool(hash_mark),
+                "reason": reasons.get(
+                    (current_h3, rule_type, start, end, result_code)
+                ),
+            })
+    return rules
+
+
+def process_code_lists(icd10_graph, soup, replacements):
+    """Return the codes listed in ACME Tables A, B, C and H.
+
+    - Table A lists codes that are valid for underlying and multiple cause
+    coding (ex: A41.9 Sepsis, unspecified; I21.9 Acute myocardial infarction,
+    unspecified)
+    - Table B lists codes that are valid for multiple cause coding only (mostly
+    injuries, since the underlying cause must be the external one (how it happened))
+    - Table C lists codes that are invalid for US coding but valid for
+    international users, in three groups: C1 (valid for underlying and multiple
+    cause coding), C2 (valid for multiple cause coding only) and C3 (valid
+    multiple cause codes with no effect on the underlying cause)
+    - Table H lists codes that are trivial conditions (ones unlikely to cause death)
+
+    Created codes in Table B are skipped since mapping them would mark their
+    parent codes as valid for multiple cause coding only.
+    """
+    code_lists = {}
+    for table in 'ABCH':
+        name = table
+        group = 0
+        for tag in _find_table(soup, table).find_all_next('p'):
+            classes = set(tag.get('class') or [])
+            if 'H1' in classes:
+                break
+            elif 'H2' in classes and table == 'C':
+                group += 1
+                name = 'C%d' % group
+                continue
+            match = re.match(r'[A-Z]\d{2}[\d.]*(\s*[-,]\s*[A-Z]\d{2}[\d.]*)*',
+                             tag.get_text(" ", strip=True))
+            if 'MsoNormal' not in classes or not match:
+                continue
+            codes = code_lists.setdefault(name, set())
+            for part in match.group().split(','):
+                start, _, end = [c.strip().replace('.', '')
+                                 for c in part.partition('-')]
+                if start in replacements:
+                    continue
+                start = standardize_icd10(start, replacements={})
+                end = standardize_icd10(end, replacements={}) if end \
+                    else start
+                if end != start or table == 'H':
+                    codes.update(icd10_graph.expand_icd10_range(start, end))
+                elif start in icd10_graph.graph:
+                    codes.add(start)
+    return {name: sorted(codes, key=icd10_sort_key)
+            for name, codes in code_lists.items()}
+
+
+def get_acme_tables(acme_file=None, icd10_file=None):
+    """Return ACME Table D as a graph, the modification rules of Table E
+    with the reasons in Table F, and the code lists of Tables A, B, C and H.
+    """
+    if acme_file is None:
+        acme_file = ICD10_BASE.ensure(url=ACME_URL)
+    with open(acme_file, 'r') as fh:
+        soup = BeautifulSoup(fh.read(), features='lxml')
+    g = Icd10Graph(icd10_file=icd10_file)
+    replacements = process_table_g(soup)
+    return {
+        'graph': process_table_d(g, soup, replacements),
+        'table_e': process_table_e(g, soup, replacements,
+                                   process_table_f(soup)),
+        'code_lists': process_code_lists(g, soup, replacements),
+    }
 
 
 def get_acme_graph(acme_file=None, icd10_file=None):
